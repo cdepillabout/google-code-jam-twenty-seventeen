@@ -6,6 +6,9 @@ module Main where
 
 import Data.Functor (($>))
 import Data.Monoid ((<>))
+import Data.Vector (Vector, (!), (//), fromList, modify, toList)
+import Data.Vector.Mutable (write)
+import qualified Data.Vector as V
 import Data.Foldable (traverse_)
 import qualified Data.ByteString as BS
 import Text.Parsec
@@ -16,33 +19,25 @@ import Text.Parsec.ByteString (Parser)
 -- Types --
 -----------
 
-data Pancake
-  = Happy
-  | Blank
-  deriving (Read, Show)
+type Number = Int
 
 data Problem = Problem
-  { pancakes :: [Pancake]
-  , flipper :: Int
+  { problemNums :: [Number]
   } deriving (Read, Show)
 
-data Solution
-  = Solution Int
-  | Impossible
-  deriving (Read, Show)
+data Solution = Solution
+  { solutionNums :: [Number]
+  } deriving (Read, Show)
 
 ------------
 -- Parser --
 ------------
 
-intParser :: Parser Int
-intParser = read <$> many1 digit
-
-pancakeParser :: Parser Pancake
-pancakeParser = (char '+' $> Happy) <|> (char '-' $> Blank)
+numberParser :: Parser Number
+numberParser = read . (\c -> [c]) <$> digit
 
 problemParser :: Parser Problem
-problemParser = Problem <$> (many1 pancakeParser <* spaces) <*> intParser
+problemParser = Problem <$> (many1 numberParser <* spaces)
 
 problemsParser :: Parser [Problem]
 problemsParser = do
@@ -53,29 +48,23 @@ problemsParser = do
 -- Solver --
 ------------
 
-doFlip1 Happy = Blank
-doFlip1 Blank = Happy
+allNines :: Int -> Vector Number -> Vector Number
+allNines i vec = vec // zip [0..i] (cycle [9])
 
-doFlip pancakes 0 = pancakes
-doFlip (p:ps) n = doFlip1 p : doFlip ps (n - 1)
-
-flipPancakes :: [Pancake] -> Int -> Maybe [Pancake]
-flipPancakes pancakes flipperLen =
-  if length pancakes < flipperLen
-    then Nothing
-    else Just $ doFlip pancakes flipperLen
-
-solveProblem' :: Int -> Problem -> Solution
-solveProblem' !acc (Problem (Happy : pancakes) flipperLen) = solveProblem' acc (Problem pancakes flipperLen)
-solveProblem' !acc (Problem (Blank : pancakes) flipperLen) =
-  let maybeFlippedPancakes = flipPancakes pancakes (flipperLen - 1)
-  in case maybeFlippedPancakes of
-       Just flippedPancakes -> solveProblem' (acc + 1) (Problem flippedPancakes flipperLen)
-       Nothing -> Impossible
-solveProblem' !acc (Problem [] flipperLen) = Solution acc
+solveProblem' :: Int -> Int -> Vector Number -> Vector Number
+solveProblem' len !i vec
+  | (i + 1) < len =
+    let a = vec ! i
+        b = vec ! (i + 1)
+    in case a < b of
+      True ->
+        let newVec = allNines i vec
+        in solveProblem' len (i + 1) (modify (\v -> write v (i + 1) (b - 1)) newVec)
+      False -> solveProblem' len (i + 1) vec
+  | otherwise = vec
 
 solveProblem :: Problem -> Solution
-solveProblem = solveProblem' 0
+solveProblem (Problem nums) = Solution . reverse . toList $ solveProblem' (length nums) 0 (fromList (reverse nums))
 
 solveProblems :: [Problem] -> [Solution]
 solveProblems = fmap solveProblem
@@ -84,11 +73,17 @@ solveProblems = fmap solveProblem
 -- Ouput --
 -----------
 
+removeLeadingZero :: [Int] -> [Int]
+removeLeadingZero (0:n) = removeLeadingZero n
+removeLeadingZero ns = ns
+
+format :: [Int] -> String
+format (i:is) = show i <> format is
+format [] = ""
+
 outputSolution :: (Solution, Int) -> IO ()
-outputSolution (Solution int, caseNum) =
-  putStrLn $ "Case #" <> show caseNum <> ": " <> show int
-outputSolution (Impossible, caseNum) =
-  putStrLn $ "Case #" <> show caseNum <> ": IMPOSSIBLE"
+outputSolution (Solution nums, caseNum) =
+  putStrLn $ "Case #" <> show caseNum <> ": " <> format (removeLeadingZero nums)
 
 outputSolutions :: [Solution] -> IO ()
 outputSolutions solutions = traverse_ outputSolution $ zip solutions [1..]
